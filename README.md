@@ -1,78 +1,85 @@
-# NoteSmart - Frontend (Classroom Expansion)
+# 🎓 NoteSmart
 
-A premium, high-fidelity classroom management interface inspired by Google Classroom, built with React, Vite, Tailwind CSS, and Framer Motion.
+> **A premium, high-fidelity classroom management interface inspired by Google Classroom.**
 
-## 🔥 Firebase Quick-Start
+NoteSmart is a modern, responsive educational portal designed for seamless interaction between teachers and students. Built with a focus on aesthetics and performance, it provides a powerful platform for sharing study materials, managing assignments, and facilitating communication.
 
-This project is optimized for **Firebase (Firestore & Storage)**. To connect your frontend to Firebase:
+---
 
-1.  **Initialize Project**: Create a new project in your [Firebase Console](https://console.firebase.google.com/).
-2.  **Add Web App**: Register a web app and copy the `firebaseConfig` object.
-3.  **Install SDK**:
-    ```bash
-    npm install firebase
-    ```
-4.  **Configure Environment**: Add your Firebase credentials to `.env` (use `.env.example` as a template).
-5.  **Enable Services**:
-    *   Open `src/lib/firebase.ts` and uncomment the code.
-    *   Open `src/context/ClassroomContext.tsx`, uncomment the Firebase stubs, and remove the mock logic.
-6.  **Firestore Rules**: Ensure your Firestore and Storage rules allow read/write access (for development).
+## ✨ Key Features
 
-## 🚀 Backend Architecture
+- 🎛️ **Service-Oriented Architecture**: Clean separation of concerns with a centralized service layer.
+- 🔄 **Dynamic Class Switching**: Effortlessly navigate between different subjects and classes.
+- 📚 **Study Library**: A professional file management system for uploading and organizing materials.
+- 💬 **Gemini AI Assistant**: Integrated AI to help students understand complex topics within the reader.
+- 🎨 **Premium UI/UX**: Powered by **Framer Motion** for smooth transitions and a high-end feel.
+- 📱 **Fully Responsive**: Optimized for desktop, tablet, and mobile viewing.
 
-The project follows a **Service-Oriented Design**:
-- **UI Components**: Purely visual, they call methods from the Context.
-- **Provider (`ClassroomContext.tsx`)**: The single source of truth. All Firebase/API logic lives here.
-- **Mock Data**: Located in `src/data/mockData.ts` for instant preview.
+---
 
-## ✨ Features
+## 🛠️ Tech Stack
 
-- **Store/Service Architecture**: Centralized state management makes it easy to maintain and scale.
-- **Class Switcher**: Dynamic class switching with persistent state.
-- **Google Classroom UI**:
-  - **Stream**: Announcements and social updates.
-  - **Classwork**: Professional file management and upload system.
-  - **People**: Detailed view of teachers and students.
-- **Smooth Animations**: Powered by Framer Motion for a premium user experience.
-- **Responsive Design**: Fully functional on desktop and tablet.
+- **Framework**: [React](https://reactjs.org/) (with TypeScript)
+- **Bundler**: [Vite](https://vitejs.dev/)
+- **Styling**: [Tailwind CSS](https://tailwindcss.com/)
+- **Animations**: [Framer Motion](https://www.framer.com/motion/)
+- **Backend/Auth**: [Firebase](https://firebase.google.com/) (Firestore, Storage, Auth)
+- **AI Integration**: [Google Gemini Pro/Flash](https://ai.google.dev/)
 
-## 🛠️ Getting Started
+---
+
+## 🏗️ Project Architecture
+
+The application follows a modular and scalable design:
+
+- **UI Components**: Atomic and reusable components located in `src/components/`.
+- **State Management**: Centralized logic in `src/context/ClassroomContext.tsx`.
+- **Service Layer**: abstraction for external APIs and Firebase in `src/lib/`.
+- **Typing**: Strict type safety ensures reliability throughout the codebase.
+
+---
+
+## 🚀 Getting Started
 
 ### Prerequisites
 
-- Node.js (v18+)
-- npm or yarn
+- **Node.js** (v18 or higher)
+- **npm** or **yarn**
 
 ### Installation
 
-1. Clone the repository:
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/resourcinator-ranadeep/NoteSmart.git
+   cd NoteSmart
    ```
-2. Install dependencies:
+
+2. **Install dependencies**:
    ```bash
    npm install
    ```
-3. Create your `.env` file from the example:
+
+3. **Configure Environment Variables**:
+   Create a `.env` file in the root directory and populate it with your credentials (use `.env.example` as a reference):
    ```bash
    cp .env.example .env
    ```
 
-### Running the Project
+### Running Locally
 
 ```bash
 npm run dev
 ```
+The app will be available at `http://localhost:5173`.
 
-The application will be available at `http://localhost:5173`.
+---
 
-## 📂 Project Structure
+## 🔒 Security Note
 
-- `src/context/`: Contains `ClassroomContext.tsx` (The core data/service layer).
-- `src/components/`: Modular UI components.
-- `src/types.ts`: Global TypeScript interfaces for the entire project.
-- `src/data/`: Centralized mock initial state.
+Sensitive credentials (API keys, Firebase configs) should **never** be committed to version control. Ensure your `.env` file is listed in `.gitignore`.
+
+---
 
 ## 📄 License
 
-MIT License - feel free to use this for your own projects!
+This project is licensed under the **MIT License**. Feel free to use and adapt it for your own educational platforms!

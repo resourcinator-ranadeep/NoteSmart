@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Sparkles, Send, MessageSquare, ChevronRight, ChevronLeft, Bot, User, Share2, Download } from 'lucide-react';
+import { X, Sparkles, Send, Bot, User, Download, FileText } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getGeminiResponse } from '../lib/gemini';
 
 interface Message {
     id: string;
@@ -30,7 +31,7 @@ export function StudyReader({ note, onClose }: StudyReaderProps) {
     const [inputText, setInputText] = useState('');
     const [isTyping, setIsTyping] = useState(false);
 
-    const handleSendMessage = () => {
+    const handleSendMessage = async () => {
         if (!inputText.trim()) return;
 
         const userMsg: Message = {
@@ -44,23 +45,48 @@ export function StudyReader({ note, onClose }: StudyReaderProps) {
         setInputText('');
         setIsTyping(true);
 
-        // Mock Gemini Response
-        setTimeout(() => {
-            const responses = [
-                "Based on the document, this section emphasizes the importance of understanding the fundamental principles before moving to complex applications.",
-                "That's a great question! In context of this study pack, it refers to the process where individual components interact to form a complex whole.",
-                "I've summarized that for you: 1. Main point A, 2. Secondary impact B, 3. Future implications C.",
-                "Sure! Here are 3 practice questions: 1. Define the main term. 2. Compare X and Y. 3. Apply Z to a new scenario."
-            ];
+        try {
+            // Prepare history for API (map internal 'gemini' role to SDK 'model')
+            // EXCLUDE the initial greeting (id='1') so history starts with User message
+            const history = messages
+                .filter(m => m.id !== '1')
+                .map(m => ({
+                    role: m.role === 'gemini' ? 'model' : 'user',
+                    parts: m.text
+                } as any));
+
+            // Context from the note description/content
+            const context = `Document Title: ${note.title}
+Subject: ${note.subject}
+Description: ${note.description}
+
+Document Content:
+${note.textContent ? note.textContent.substring(0, 30000) : "No text content extractable. Rely on description."}
+
+You are a helpful AI study assistant. Answer the user's questions based primarily on the Document Content provided above.
+IMPORTANT: Keep your responses in simple text (as markdown is not supported), super concise and to the point (under 3-4 sentences) unless the user explicitly asks for a response of certain number of words.`;
+
+            const replyText = await getGeminiResponse(history, userMsg.text, context);
+
             const geminiMsg: Message = {
                 id: (Date.now() + 1).toString(),
                 role: 'gemini',
-                text: responses[Math.floor(Math.random() * responses.length)],
+                text: replyText,
                 timestamp: new Date()
             };
             setMessages(prev => [...prev, geminiMsg]);
+        } catch (err) {
+            console.error(err);
+            const errorMsg: Message = {
+                id: (Date.now() + 1).toString(),
+                role: 'gemini',
+                text: "Sorry, I encountered an error connecting to the AI service.",
+                timestamp: new Date()
+            };
+            setMessages(prev => [...prev, errorMsg]);
+        } finally {
             setIsTyping(false);
-        }, 1500);
+        }
     };
 
     return (
@@ -87,8 +113,15 @@ export function StudyReader({ note, onClose }: StudyReaderProps) {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        <button className="p-2 hover:bg-accent rounded-lg text-muted-foreground"><Download className="w-4 h-4" /></button>
-                        <button className="p-2 hover:bg-accent rounded-lg text-muted-foreground"><Share2 className="w-4 h-4" /></button>
+                        <a
+                            href={note.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-2 hover:bg-accent rounded-lg text-muted-foreground transition-colors"
+                            title="Download Document"
+                        >
+                            <Download className="w-4 h-4" />
+                        </a>
                         {!isChatOpen && (
                             <button
                                 onClick={() => setIsChatOpen(true)}
@@ -104,33 +137,31 @@ export function StudyReader({ note, onClose }: StudyReaderProps) {
                 {/* Viewer Content */}
                 <div className="flex-1 bg-accent/20 p-4 md:p-8 overflow-y-auto flex justify-center">
                     {/* Mock PDF Viewer */}
-                    <div className="w-full max-w-4xl bg-white text-black min-h-[1200px] shadow-2xl p-12 md:p-20 rounded-sm">
-                        <h1 className="text-4xl font-serif font-bold mb-8 border-b-2 border-black pb-4">{note.title}</h1>
-                        <div className="space-y-6 font-serif leading-relaxed text-lg text-neutral-800">
-                            <p className="first-letter:text-5xl first-letter:font-bold first-letter:mr-3 first-letter:float-left">
-                                {note.description} This foundational document explores the intricacies of {note.subject.toLowerCase()} and its impact on modern theoretical frameworks.
-                                As we delve into the core tenets, we observe a significant shift in perspective that has redefined the field over the last decade.
-                            </p>
-                            <h2 className="text-2xl font-bold pt-4">Introduction</h2>
-                            <p>
-                                The primary objective of this chapter is to provide a comprehensive overview of the mechanisms involved.
-                                Historical context suggests that early pioneers struggled with the initial data sets, yet through rigorous
-                                experimentation and iterative refinement, the current paradigm emerged.
-                            </p>
-                            <div className="bg-neutral-100 p-6 border-l-4 border-black my-8 italic">
-                                "The pursuit of knowledge is not a destination, but a continuous journey of discovery and refinement."
-                            </div>
-                            <h2 className="text-2xl font-bold pt-4">Methodology</h2>
-                            <p>
-                                Our approach utilizes a multi-disciplinary framework, combining quantitative analysis with qualitative observations.
-                                By synthesizing these disparate data streams, we can form a more holistic understanding of the phenomena under investigation.
-                            </p>
-                            <p>
-                                Key variables identified include (a) initial velocity vectors, (b) thermal variance thresholds, and (c) isotopic
-                                stability coefficients. Each of these plays a critical role in the final outcome.
-                            </p>
+                    {note.url ? (
+                        <div className="w-full max-w-5xl h-full bg-white shadow-2xl rounded-sm overflow-hidden">
+                            <iframe
+                                src={`${note.url}#toolbar=0`}
+                                className="w-full h-full border-none"
+                                title={note.title}
+                            />
                         </div>
-                    </div>
+                    ) : (
+                        <div className="w-full max-w-4xl bg-white text-black min-h-[1200px] shadow-2xl p-12 md:p-20 rounded-sm">
+                            <div className="flex flex-col items-center justify-center h-full text-center space-y-4 p-12">
+                                <div className="p-4 rounded-full bg-accent/50">
+                                    <FileText className="w-12 h-12 text-muted-foreground" />
+                                </div>
+                                <h3 className="text-xl font-bold">Preview Not Available</h3>
+                                <p className="text-muted-foreground max-w-md">
+                                    This document cannot be previewed directly. It might be a file type that doesn't support in-browser viewing, or the file is still processing.
+                                </p>
+                                <div className="p-4 border border-border rounded-xl bg-card max-w-md w-full text-left">
+                                    <h4 className="font-bold">{note.title}</h4>
+                                    <p className="text-sm text-muted-foreground mt-1">{note.description}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
                 </div>
             </div>
 

@@ -1,288 +1,466 @@
-import { Upload, FileText, CheckCircle2, Clock, Trash2, Send, User, UserPlus } from 'lucide-react';
+import { Upload, FileText, CheckCircle2, Trash2, X, Loader2, AlertTriangle } from 'lucide-react';
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../lib/utils';
 import { useClassroom } from '../context/ClassroomContext';
+import { useAuth } from '../context/AuthContext';
+import type { Class, Note } from '../types';
+import { extractPdfData } from '../lib/pdfUtils';
+import { SUBJECT_CODES } from '../data/mockData';
 
-interface TeacherViewProps {
-    innerTab: string;
-}
+export function TeacherView() {
+    const { activeClassId, notes, addNote, deleteNote, classes, setActiveClassId } = useClassroom();
 
-export function TeacherView({ innerTab }: TeacherViewProps) {
-    const {
-        activeClassId,
-        notes,
-        announcements,
-        members,
-        addNote,
-        deleteNote,
-        addAnnouncement
-    } = useClassroom();
+    // We get the teacher name from AuthContext
+    const { currentUser, userName } = useAuth();
+    const teacherName = userName || currentUser?.email?.split('@')[0] || "Teacher";
 
-    const [isDragging, setIsDragging] = useState(false);
-    const [newAnnouncement, setNewAnnouncement] = useState('');
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+
+    // Delete Confirmation State
+    const [deleteConfirmationId, setDeleteConfirmationId] = useState<string | null>(null);
+    const [validationError, setValidationError] = useState<string | null>(null);
+
+    // Upload Form State
+    const [file, setFile] = useState<File | null>(null);
+    const [description, setDescription] = useState('');
+    const [uploadClassId, setUploadClassId] = useState(activeClassId || (classes[0]?.id || ''));
+    const [subject, setSubject] = useState('');
+    const [subjectCode, setSubjectCode] = useState('');
+    const [suggestions, setSuggestions] = useState<string[]>([]);
+    const [session, setSession] = useState('2024-2025');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const processFile = async (file: File) => {
-        // Prepare the note data (id will be handled by the service/backend)
-        const newNoteData = {
-            name: file.name,
-            title: file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
-            date: new Date().toISOString().split('T')[0],
-            status: 'Uploading' as const,
-            size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
-            classId: activeClassId,
-            subject: 'General',
-            description: `Uploaded material for ${activeClassId}`,
-            pages: Math.floor(Math.random() * 20) + 1,
-        };
-
-        await addNote(newNoteData);
-    };
-
-    const handlePostAnnouncement = async () => {
-        if (!newAnnouncement.trim()) return;
-
-        await addAnnouncement({
-            classId: activeClassId,
-            author: 'You (Teacher)',
-            date: new Date().toISOString().split('T')[0],
-            content: newAnnouncement,
-            comments: 0
-        });
-
-        setNewAnnouncement('');
-    };
-
     const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) processFile(file);
+        if (e.target.files && e.target.files[0]) {
+            const selectedFile = e.target.files[0];
+
+            // Validate File Type (PDF only)
+            if (selectedFile.type !== 'application/pdf') {
+                setValidationError("Only PDF files are allowed.");
+                e.target.value = ''; // Reset input
+                setFile(null);
+                return;
+            }
+
+            // Validate File Size (Max 10MB)
+            if (selectedFile.size > 10 * 1024 * 1024) {
+                setValidationError("File size exceeds 10MB limit.");
+                e.target.value = ''; // Reset input
+                setFile(null);
+                return;
+            }
+
+            setFile(selectedFile);
+        }
     };
 
-    const triggerFileInput = () => {
-        fileInputRef.current?.click();
+    const handleSubjectCodeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const value = e.target.value;
+        setSubjectCode(value);
+
+        if (value.length >= 2) {
+            const filtered = SUBJECT_CODES.filter(code =>
+                code.toLowerCase().includes(value.toLowerCase())
+            );
+            setSuggestions(filtered);
+        } else {
+            setSuggestions([]);
+        }
     };
 
-    const currentClassNotes = notes.filter(n => n.classId === activeClassId);
+    const selectSuggestion = (code: string) => {
+        setSubjectCode(code);
+        setSuggestions([]);
+    };
+
+    const handleUploadSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+
+        // Validate all compulsory fields
+        if (!file || !uploadClassId || !subject || !subjectCode || !session || !description) {
+            setValidationError("Please fill in all fields.");
+            return;
+        }
+
+        setIsSubmitting(true);
+
+        try {
+            let extractedData = { text: '', pageCount: 0 };
+            if (file.type === 'application/pdf') {
+                try {
+                    extractedData = await extractPdfData(file);
+                } catch (e) {
+                    console.error("PDF Parsing failed", e);
+                    setValidationError("Failed to extract text from PDF. AI features will be limited for this file.");
+                    // Fallback to defaults if parsing fails
+                    extractedData = { text: '', pageCount: 1 };
+                }
+            }
+
+            const newNoteData = {
+                name: file.name,
+                title: file.name.replace(/\.[^/.]+$/, "").replace(/_/g, " "),
+                date: new Date().toISOString().split('T')[0],
+                status: 'Processed' as const,
+                size: (file.size / (1024 * 1024)).toFixed(1) + ' MB',
+                classId: uploadClassId,
+                subject: subject,
+                subjectCode: subjectCode,
+                description: description,
+                pages: extractedData.pageCount || 1,
+                textContent: extractedData.text,
+                session: session,
+                uploadedBy: teacherName
+            };
+
+            await addNote(newNoteData, file);
+
+            // Reset form
+            setFile(null);
+            setDescription('');
+            setSubject('');
+            setSubjectCode('');
+            setIsUploadModalOpen(false);
+        } catch (error) {
+            console.error("Upload failed", error);
+        } finally {
+            setIsSubmitting(false);
+        }
+    };
+
+    const currentClassNotes = notes.filter((n: Note) => n.classId === activeClassId);
 
     return (
-        <div className="max-w-5xl mx-auto pb-12">
-            {innerTab === 'stream' && (
-                <div className="space-y-6">
-                    {/* Announcement Box */}
-                    <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-                        <div className="flex gap-4">
-                            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                                <User className="w-6 h-6" />
-                            </div>
-                            <div className="flex-1 space-y-4">
-                                <textarea
-                                    value={newAnnouncement}
-                                    onChange={(e) => setNewAnnouncement(e.target.value)}
-                                    placeholder="Announce something to your class"
-                                    className="w-full bg-accent/30 border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 min-h-[100px] resize-none"
-                                />
-                                <div className="flex justify-end">
-                                    <button
-                                        onClick={handlePostAnnouncement}
-                                        className="bg-primary text-primary-foreground px-6 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:opacity-90 transition-opacity"
-                                    >
-                                        <Send className="w-4 h-4" />
-                                        Post
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Stream Posts */}
-                    <div className="space-y-4">
-                        {announcements.filter(a => a.classId === activeClassId).map((post) => (
-                            <motion.div
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                key={post.id}
-                                className="bg-card border border-border rounded-2xl p-6 shadow-sm"
-                            >
-                                <div className="flex items-center gap-3 mb-4">
-                                    <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center">
-                                        <User className="w-4 h-4" />
-                                    </div>
-                                    <div>
-                                        <h4 className="text-sm font-bold">{post.author}</h4>
-                                        <p className="text-xs text-muted-foreground">{post.date}</p>
-                                    </div>
-                                </div>
-                                <p className="text-sm leading-relaxed mb-4">{post.content}</p>
-                                <div className="border-t border-border pt-4">
-                                    <button className="text-xs font-semibold text-muted-foreground hover:text-primary transition-colors">
-                                        {post.comments} class comments
-                                    </button>
-                                </div>
-                            </motion.div>
-                        ))}
-                    </div>
+        <div className="max-w-6xl mx-auto pb-12 space-y-8">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-2xl font-bold">Class Materials Manager</h2>
+                    <p className="text-muted-foreground">Upload and manage documents for your students.</p>
                 </div>
-            )}
+                <button
+                    onClick={() => setIsUploadModalOpen(true)}
+                    className="bg-primary text-primary-foreground px-6 py-3 rounded-2xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                    <Upload className="w-5 h-5" />
+                    Upload Material
+                </button>
+            </div>
 
-            {innerTab === 'classwork' && (
-                <div className="space-y-8">
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileChange}
-                        className="hidden"
-                        accept=".pdf,.docx,.txt"
-                    />
-
-                    <div className="flex items-center justify-between">
-                        <h2 className="text-2xl font-bold">Class Materials</h2>
-                        <button
-                            onClick={triggerFileInput}
-                            className="bg-primary text-primary-foreground px-6 py-2.5 rounded-2xl text-sm font-bold flex items-center gap-2 shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            {/* Main Materials Table */}
+            <div className="bg-card border border-border rounded-3xl overflow-hidden shadow-sm">
+                <div className="p-6 border-b border-border flex items-center justify-between">
+                    <h3 className="font-bold text-lg">Your Uploads</h3>
+                    <div className="flex items-center gap-2">
+                        <span className="text-sm text-muted-foreground">Filter by Class:</span>
+                        <select
+                            value={activeClassId}
+                            onChange={(e) => setActiveClassId(e.target.value)}
+                            className="bg-accent/50 border border-border rounded-lg px-3 py-1.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
                         >
-                            <Upload className="w-4 h-4" />
-                            Upload Material
-                        </button>
-                    </div>
-
-                    {/* Upload Zone */}
-                    <motion.div
-                        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-                        onDragLeave={() => setIsDragging(false)}
-                        onDrop={(e) => {
-                            e.preventDefault();
-                            setIsDragging(false);
-                            const file = e.dataTransfer.files[0];
-                            if (file) processFile(file);
-                        }}
-                        onClick={triggerFileInput}
-                        whileHover={{ scale: 1.005 }}
-                        className={cn(
-                            "relative group cursor-pointer border-2 border-dashed rounded-3xl p-12 transition-all duration-300",
-                            isDragging ? "border-primary bg-primary/5 scale-[1.02] shadow-xl" : "border-border hover:border-primary/50 hover:bg-accent/30"
-                        )}
-                    >
-                        <div className="flex flex-col items-center gap-4 text-center">
-                            <div className="w-16 h-16 rounded-2xl bg-accent flex items-center justify-center text-muted-foreground group-hover:bg-primary/20 group-hover:text-primary transition-colors">
-                                <Upload className="w-8 h-8" />
-                            </div>
-                            <div className="space-y-1">
-                                <h3 className="text-lg font-semibold">Click or drag materials here</h3>
-                                <p className="text-sm text-muted-foreground">PDF, DOCX, or TXT up to 50MB</p>
-                            </div>
-                        </div>
-                    </motion.div>
-
-                    {/* Materials Table */}
-                    <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-                        <table className="w-full text-left">
-                            <thead className="bg-accent/30 border-b border-border">
-                                <tr>
-                                    <th className="px-6 py-4 text-sm font-semibold">Name</th>
-                                    <th className="px-6 py-4 text-sm font-semibold">Date</th>
-                                    <th className="px-6 py-4 text-sm font-semibold">Size</th>
-                                    <th className="px-6 py-4 text-sm font-semibold">Status</th>
-                                    <th className="px-6 py-4 text-sm font-semibold text-right">Action</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <AnimatePresence mode="popLayout">
-                                    {currentClassNotes.map((upload) => (
-                                        <motion.tr
-                                            layout
-                                            initial={{ opacity: 0 }}
-                                            animate={{ opacity: 1 }}
-                                            exit={{ opacity: 0, x: -10 }}
-                                            key={upload.id}
-                                            className="border-b border-border/50 hover:bg-accent/10 transition-colors"
-                                        >
-                                            <td className="px-6 py-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="p-2 rounded-lg bg-primary/10 text-primary">
-                                                        <FileText className="w-4 h-4" />
-                                                    </div>
-                                                    <span className="text-sm font-medium">{upload.name}</span>
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-sm text-muted-foreground">{upload.date}</td>
-                                            <td className="px-6 py-4 text-sm text-muted-foreground">{upload.size}</td>
-                                            <td className="px-6 py-4">
-                                                <div className={cn(
-                                                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider",
-                                                    upload.status === 'Processed' ? "bg-green-500/10 text-green-600" : "bg-yellow-500/10 text-yellow-600"
-                                                )}>
-                                                    {upload.status === 'Processed' ? <CheckCircle2 className="w-3 h-3" /> : <Clock className="w-3 h-3 animate-spin" />}
-                                                    {upload.status}
-                                                </div>
-                                            </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <button onClick={() => deleteNote(upload.id)} className="p-2 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-colors">
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
-                                            </td>
-                                        </motion.tr>
-                                    ))}
-                                </AnimatePresence>
-                                {currentClassNotes.length === 0 && (
-                                    <tr>
-                                        <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm italic">
-                                            No materials found in this classroom.
-                                        </td>
-                                    </tr>
-                                )}
-                            </tbody>
-                        </table>
+                            {classes.map((c: Class) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
                     </div>
                 </div>
-            )}
 
-            {innerTab === 'people' && (
-                <div className="bg-card border border-border rounded-2xl p-8 shadow-sm space-y-12">
-                    {/* Teachers */}
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between border-b border-primary pb-2">
-                            <h2 className="text-2xl font-bold text-primary">Teachers</h2>
-                            <button className="p-2 hover:bg-accent rounded-full text-primary transition-colors">
-                                <UserPlus className="w-5 h-5" />
-                            </button>
-                        </div>
-                        <div className="space-y-4">
-                            {members?.teachers?.map((teacher: string) => (
-                                <div key={teacher} className="flex items-center gap-4">
-                                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-muted-foreground">
-                                        <User className="w-6 h-6" />
-                                    </div>
-                                    <span className="font-semibold">{teacher}</span>
-                                </div>
+                <table className="w-full text-left">
+                    <thead className="bg-accent/30 border-b border-border">
+                        <tr>
+                            <th className="px-6 py-4 text-sm font-semibold">Document Name</th>
+                            <th className="px-6 py-4 text-sm font-semibold">Subject</th>
+                            <th className="px-6 py-4 text-sm font-semibold">Date</th>
+                            <th className="px-6 py-4 text-sm font-semibold">Size</th>
+                            <th className="px-6 py-4 text-sm font-semibold text-right">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <AnimatePresence mode="popLayout">
+                            {currentClassNotes.map((upload: Note) => (
+                                <motion.tr
+                                    layout
+                                    initial={{ opacity: 0 }}
+                                    animate={{ opacity: 1 }}
+                                    exit={{ opacity: 0, x: -10 }}
+                                    key={upload.id}
+                                    className="border-b border-border/50 hover:bg-accent/10 transition-colors"
+                                >
+                                    <td className="px-6 py-4">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2 rounded-lg bg-primary/10 text-primary">
+                                                <FileText className="w-4 h-4" />
+                                            </div>
+                                            <div>
+                                                <span className="text-sm font-medium block">{upload.name}</span>
+                                                <span className="text-xs text-muted-foreground">{upload.description?.substring(0, 30)}...</span>
+                                            </div>
+                                        </div>
+                                    </td>
+                                    <td className="px-6 py-4 text-sm text-muted-foreground font-medium">{upload.subject}</td>
+                                    <td className="px-6 py-4 text-sm text-muted-foreground">{upload.date}</td>
+                                    <td className="px-6 py-4 text-sm text-muted-foreground">{upload.size}</td>
+                                    <td className="px-6 py-4 text-right">
+                                        <button
+                                            onClick={() => setDeleteConfirmationId(upload.id)}
+                                            className="p-2 hover:bg-destructive/10 text-muted-foreground hover:text-destructive rounded-lg transition-colors"
+                                            title="Delete Material"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                        </button>
+                                    </td>
+                                </motion.tr>
                             ))}
-                        </div>
-                    </div>
+                        </AnimatePresence>
+                        {currentClassNotes.length === 0 && (
+                            <tr>
+                                <td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm italic">
+                                    No materials uploaded for this class yet.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
 
-                    {/* Students */}
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between border-b border-border pb-2">
-                            <h2 className="text-2xl font-bold">Students</h2>
-                            <div className="flex items-center gap-4">
-                                <span className="text-sm font-medium text-muted-foreground">{members?.students?.length || 0} students</span>
-                                <button className="p-2 hover:bg-accent rounded-full text-muted-foreground transition-colors">
-                                    <UserPlus className="w-5 h-5" />
+            {/* Upload Modal */}
+            <AnimatePresence>
+                {isUploadModalOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-card w-full max-w-lg rounded-3xl border border-border shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+                        >
+                            <div className="p-6 border-b border-border flex items-center justify-between sticky top-0 bg-card z-10">
+                                <h3 className="text-xl font-bold">Upload New Material</h3>
+                                <button onClick={() => setIsUploadModalOpen(false)} className="p-2 hover:bg-accent rounded-full text-muted-foreground transition-colors">
+                                    <X className="w-5 h-5" />
                                 </button>
                             </div>
-                        </div>
-                        <div className="space-y-4">
-                            {members?.students?.map((student: string) => (
-                                <div key={student} className="flex items-center gap-4 pt-1">
-                                    <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-muted-foreground">
-                                        <User className="w-6 h-6" />
+
+                            <form onSubmit={handleUploadSubmit} className="p-6 space-y-5 overflow-y-auto">
+                                {/* File Input */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold">Document File</label>
+                                    <div
+                                        onClick={() => fileInputRef.current?.click()}
+                                        className={cn(
+                                            "border-2 border-dashed border-border rounded-xl p-8 flex flex-col items-center justify-center text-center cursor-pointer hover:border-primary/50 hover:bg-accent/30 transition-all",
+                                            file ? "border-primary/50 bg-primary/5" : ""
+                                        )}
+                                    >
+                                        <input
+                                            type="file"
+                                            ref={fileInputRef}
+                                            onChange={handleFileChange}
+                                            className="hidden"
+                                            accept=".pdf"
+                                        />
+                                        {file ? (
+                                            <>
+                                                <CheckCircle2 className="w-8 h-8 text-primary mb-2" />
+                                                <span className="font-semibold text-sm">{file.name}</span>
+                                                <span className="text-xs text-muted-foreground">{(file.size / (1024 * 1024)).toFixed(2)} MB</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload className="w-8 h-8 text-muted-foreground mb-2" />
+                                                <span className="font-medium text-sm">Click to browse</span>
+                                                <span className="text-xs text-muted-foreground">PDF only, max 10MB</span>
+                                            </>
+                                        )}
                                     </div>
-                                    <span className="font-medium">{student}</span>
                                 </div>
-                            ))}
-                        </div>
+
+                                {/* Class & Subject Row */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold">Class</label>
+                                        <select
+                                            value={uploadClassId}
+                                            onChange={(e) => setUploadClassId(e.target.value)}
+                                            className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                        >
+                                            {classes.map((c: Class) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold">Subject</label>
+                                        <input
+                                            type="text"
+                                            value={subject}
+                                            onChange={(e) => setSubject(e.target.value)}
+                                            placeholder="e.g. Mathematics"
+                                            className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                            required
+                                        />
+                                    </div>
+                                </div>
+                                <div className="space-y-2 relative">
+                                    <label className="text-sm font-bold">Subject Code</label>
+                                    <input
+                                        type="text"
+                                        value={subjectCode}
+                                        onChange={handleSubjectCodeChange}
+                                        placeholder="e.g. CS101"
+                                        className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                        required
+                                    />
+                                    {suggestions.length > 0 && (
+                                        <div className="absolute top-full left-0 right-0 bg-popover border border-border rounded-xl shadow-lg mt-1 z-50 max-h-40 overflow-y-auto">
+                                            {suggestions.map(code => (
+                                                <div
+                                                    key={code}
+                                                    onClick={() => selectSuggestion(code)}
+                                                    className="px-4 py-2 hover:bg-accent cursor-pointer text-sm"
+                                                >
+                                                    {code}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Session & Teacher Row */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold">Session</label>
+                                        <input
+                                            type="text"
+                                            value={session}
+                                            onChange={(e) => setSession(e.target.value)}
+                                            placeholder="e.g. 2024-2025"
+                                            className="w-full bg-accent/30 border border-border rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                            required
+                                        />
+                                    </div>
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-bold">Teacher</label>
+                                        <input
+                                            type="text"
+                                            value={teacherName}
+                                            disabled
+                                            className="w-full bg-accent/10 border border-border rounded-xl px-4 py-2.5 text-sm font-medium text-muted-foreground cursor-not-allowed"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Description */}
+                                <div className="space-y-2">
+                                    <label className="text-sm font-bold">Description</label>
+                                    <textarea
+                                        value={description}
+                                        onChange={(e) => setDescription(e.target.value)}
+                                        placeholder="Briefly describe the contents of this document..."
+                                        rows={3}
+                                        className="w-full bg-accent/30 border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                        required
+                                    />
+                                </div>
+
+                                <div className="pt-2">
+                                    <button
+                                        type="submit"
+                                        disabled={isSubmitting || !file}
+                                        className="w-full bg-primary text-primary-foreground font-bold py-3 rounded-xl hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
+                                    >
+                                        {isSubmitting ? (
+                                            <>
+                                                <Loader2 className="w-4 h-4 animate-spin" />
+                                                Uploading...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Upload className="w-4 h-4" />
+                                                Upload Material
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        </motion.div>
                     </div>
-                </div>
-            )}
+                )}
+            </AnimatePresence>
+
+            {/* Delete Confirmation Modal */}
+            <AnimatePresence>
+                {deleteConfirmationId && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-card w-full max-w-md rounded-3xl border border-destructive/20 shadow-2xl overflow-hidden"
+                        >
+                            <div className="p-6 text-center space-y-4">
+                                <div className="w-16 h-16 bg-destructive/10 rounded-full flex items-center justify-center mx-auto text-destructive">
+                                    <AlertTriangle className="w-8 h-8" />
+                                </div>
+                                <h3 className="text-xl font-bold">Delete Material?</h3>
+                                <p className="text-muted-foreground text-sm">
+                                    This action cannot be undone. This document will be permanently removed for all students.
+                                </p>
+                            </div>
+                            <div className="p-6 bg-accent/30 flex gap-3">
+                                <button
+                                    onClick={() => setDeleteConfirmationId(null)}
+                                    className="flex-1 px-4 py-2.5 bg-background border border-border rounded-xl font-bold hover:bg-accent transition-colors"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        if (deleteConfirmationId) {
+                                            deleteNote(deleteConfirmationId);
+                                            setDeleteConfirmationId(null);
+                                        }
+                                    }}
+                                    className="flex-1 px-4 py-2.5 bg-destructive text-destructive-foreground rounded-xl font-bold hover:opacity-90 transition-opacity"
+                                >
+                                    Delete
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* Validation Error Modal */}
+            <AnimatePresence>
+                {validationError && (
+                    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-card w-full max-w-sm rounded-3xl border border-destructive/20 shadow-2xl overflow-hidden"
+                        >
+                            <div className="p-8 text-center space-y-6">
+                                <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto shadow-[0_0_15px_rgba(239,68,68,0.3)]">
+                                    <AlertTriangle className="w-10 h-10 text-red-500" />
+                                </div>
+                                <div className="space-y-2">
+                                    <h3 className="text-2xl font-bold text-red-500">Attention Needed</h3>
+                                    <p className="text-foreground text-base leading-relaxed px-2">
+                                        {validationError}
+                                    </p>
+                                </div>
+                            </div>
+                            <div className="p-6 bg-accent/30">
+                                <button
+                                    onClick={() => setValidationError(null)}
+                                    className="w-full px-4 py-2.5 bg-primary text-primary-foreground rounded-xl font-bold hover:opacity-90 transition-opacity"
+                                >
+                                    Understood
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </div>
     );
 }

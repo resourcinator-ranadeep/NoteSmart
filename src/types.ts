@@ -5,29 +5,20 @@ export interface Class {
 }
 
 export interface Note {
-    id: number;
+    id: string; // Changed to string for Firestore compatibility
     name: string;
     title: string;
     classId: string;
     subject: string;
+    subjectCode?: string;
     description: string;
     pages: number;
     date: string;
     status: 'Processed' | 'Uploading' | 'Error';
     size: string;
-}
-
-export interface Announcement {
-    id: number;
-    classId: string;
-    author: string;
-    date: string;
-    content: string;
-    comments: number;
-}
-
-export interface ClassMembers {
-    classId: string;
-    teachers: string[];
-    students: string[];
+    url?: string; // Cloud storage URL
+    path?: string; // Cloud storage path
+    textContent?: string; // Extracted text content
+    uploadedBy?: string;
+    session?: string;
 }

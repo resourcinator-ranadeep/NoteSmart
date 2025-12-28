@@ -1,107 +1,114 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
-import type { Class, Note, Announcement, ClassMembers } from '../types';
-import { CLASSES, INITIAL_NOTES, MOCK_ANNOUNCEMENTS, MOCK_MEMBERS } from '../data/mockData';
+import type { Class, Note } from '../types';
+import { CLASSES } from '../data/mockData';
+import { db, storage } from '../lib/firebase';
+import {
+    collection,
+    addDoc,
+    deleteDoc,
+    doc,
+    onSnapshot,
+    query,
+    orderBy
+} from 'firebase/firestore';
+import {
+    ref,
+    uploadBytes,
+    getDownloadURL,
+    deleteObject
+} from 'firebase/storage';
 
 interface ClassroomContextType {
     // State
     activeClassId: string;
     setActiveClassId: (id: string) => void;
     notes: Note[];
-    announcements: Announcement[];
-    members: ClassMembers | undefined;
     classes: Class[];
 
-    // Actions (These will be replaced with API calls later)
-    addNote: (note: Omit<Note, 'id'>) => Promise<void>;
-    deleteNote: (id: number) => Promise<void>;
-    addAnnouncement: (announcement: Omit<Announcement, 'id'>) => Promise<void>;
-    deleteAnnouncement: (id: number) => Promise<void>;
+    // Actions
+    addNote: (noteData: Omit<Note, 'id'>, file: File) => Promise<void>;
+    deleteNote: (id: string) => Promise<void>;
 }
 
 const ClassroomContext = createContext<ClassroomContextType | undefined>(undefined);
 
 export function ClassroomProvider({ children }: { children: ReactNode }) {
     const [activeClassId, setActiveClassId] = useState(CLASSES[0].id);
-    const [notes, setNotes] = useState<Note[]>(INITIAL_NOTES);
-    const [announcements, setAnnouncements] = useState<Announcement[]>(MOCK_ANNOUNCEMENTS);
+    const [notes, setNotes] = useState<Note[]>([]);
 
-    const activeClassMembers = MOCK_MEMBERS.find(m => m.classId === activeClassId);
+    useEffect(() => {
+        const q = query(collection(db, 'notes'), orderBy('date', 'desc'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const fetchedNotes = snapshot.docs.map(doc => ({
+                id: doc.id,
+                ...doc.data()
+            } as Note));
+            setNotes(fetchedNotes);
+        });
 
-    // Note Smart Service Methods
-    // ---------------------------------------------------------
-    // 💡 FIREBASE INTEGRATION GUIDE:
-    // To use Firebase, uncomment the stubs below and remove the mock logic.
-    // Make sure you've installed 'firebase' and configured 'src/lib/firebase.ts'.
+        return () => unsubscribe();
+    }, []);
 
-    const addNote = async (newNoteData: Omit<Note, 'id'>) => {
-        /* 
-        // FIREBASE STUB:
-        const docRef = await addDoc(collection(db, "notes"), newNoteData);
-        setNotes(prev => [{ ...newNoteData, id: docRef.id }, ...prev]);
-        */
+    const addNote = async (newNoteData: Omit<Note, 'id'>, file: File) => {
+        try {
+            // 1. Upload file to Storage
+            const storagePath = `notes/${newNoteData.classId}/${Date.now()}_${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            const uploadResult = await uploadBytes(storageRef, file);
+            const downloadUrl = await getDownloadURL(uploadResult.ref);
 
-        // CURRENT MOCK LOGIC:
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 800));
+            // 2. Save metadata to Firestore
+            const noteDataWithUrl = {
+                ...newNoteData,
+                url: downloadUrl,
+                path: storagePath,
+                status: 'Processed' as const
+            };
 
-        const newNote = {
-            ...newNoteData,
-            id: Math.max(0, ...notes.map(n => n.id)) + 1,
-        } as Note;
+            const docRef = await addDoc(collection(db, 'notes'), noteDataWithUrl);
 
-        setNotes(prev => [newNote, ...prev]);
+            // 3. Update local state (Optimistic or wait for snapshot)
+            const newNote = {
+                ...noteDataWithUrl,
+                id: docRef.id,
+            } as Note;
+
+            setNotes(prev => [newNote, ...prev]);
+        } catch (error) {
+            console.error("Error uploading note:", error);
+            throw error;
+        }
     };
 
-    const deleteNote = async (id: number) => {
-        /*
-        // FIREBASE STUB:
-        await deleteDoc(doc(db, "notes", id.toString()));
-        */
+    const deleteNote = async (id: string) => {
+        try {
+            const noteToDelete = notes.find(n => n.id === id);
 
-        // CURRENT MOCK LOGIC:
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-        setNotes(prev => prev.filter(n => n.id !== id));
-    };
+            // 1. Delete from Firestore
+            await deleteDoc(doc(db, 'notes', id));
 
-    const addAnnouncement = async (newAnnData: Omit<Announcement, 'id'>) => {
-        /*
-        // FIREBASE STUB:
-        await addDoc(collection(db, "announcements"), newAnnData);
-        */
+            // 2. Delete from Storage if path exists
+            if (noteToDelete?.path) {
+                const storageRef = ref(storage, noteToDelete.path);
+                await deleteObject(storageRef).catch(err => console.warn("Storage deletion failed or file not found", err));
+            }
 
-        // CURRENT MOCK LOGIC:
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 600));
-
-        const newAnn = {
-            ...newAnnData,
-            id: Math.max(0, ...announcements.map(a => a.id)) + 1,
-        } as Announcement;
-
-        setAnnouncements(prev => [newAnn, ...prev]);
-    };
-
-    const deleteAnnouncement = async (id: number) => {
-        /*
-        // FIREBASE STUB:
-        await deleteDoc(doc(db, "announcements", id.toString()));
-        */
-        setAnnouncements(prev => prev.filter(a => a.id !== id));
+            // 3. Update local state
+            setNotes(prev => prev.filter(n => n.id !== id));
+        } catch (error) {
+            console.error("Error deleting note:", error);
+            throw error;
+        }
     };
 
     const value = {
         activeClassId,
         setActiveClassId,
         notes,
-        announcements,
-        members: activeClassMembers,
         classes: CLASSES,
         addNote,
-        deleteNote,
-        addAnnouncement,
-        deleteAnnouncement
+        deleteNote
     };
 
     return (

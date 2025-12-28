@@ -5,7 +5,6 @@
 // 2. Uncomment the code below
 // 3. Populate your .env file with your Firebase credentials
 
-/*
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
@@ -29,6 +28,3 @@ export const storage = getStorage(app);
 export const auth = getAuth(app);
 
 export default app;
-*/
-
-export { }; // Temporary export to avoid TS errors until uncommented
