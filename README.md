@@ -1,9 +1,8 @@
 # 🎓 NoteSmart
 
-> **A premium, high-fidelity classroom management interface inspired by Google Classroom.**
+> **A premium, high-fidelity study material management interface.**
 
-NoteSmart is a modern, responsive educational portal designed for seamless interaction between teachers and students. Built with a focus on aesthetics and performance, it provides a powerful platform for sharing study materials, managing assignments, and facilitating communication.
-
+NoteSmart is a modern, responsive educational portal designed for seamless interaction between teachers and students. Built with a focus on aesthetics and performance, it provides a powerful platform for sharing and managing study materials among students and facullty members.
 ---
 
 ## ✨ Key Features
